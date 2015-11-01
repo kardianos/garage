@@ -19,11 +19,10 @@
 	<uses-permission android:name="android.permission.INTERNET" />
 
 	<application
-		android:label="Garage Door 2"
-		android:hasCode="false"
+		android:label="Garage Door 3"
 		android:debuggable="true">
 
-	<activity android:name="android.app.NativeActivity"
+	<activity android:name="org.golang.app.GoNativeActivity"
 		android:label="network"
 		android:configChanges="orientation|keyboardHidden">
 		<meta-data android:name="android.app.lib_name" android:value="network" />
