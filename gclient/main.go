@@ -29,24 +29,18 @@
 package main
 
 import (
+	"context"
 	"log"
+	"net/http"
 	"os"
+	"time"
 
 	"golang.org/x/mobile/app"
 	"golang.org/x/mobile/event/lifecycle"
 	"golang.org/x/mobile/event/paint"
 	"golang.org/x/mobile/event/size"
 	"golang.org/x/mobile/event/touch"
-	"golang.org/x/mobile/exp/gl/glutil"
 	"golang.org/x/mobile/gl"
-)
-
-var (
-	images *glutil.Images
-
-	green  float32
-	touchX float32
-	touchY float32
 )
 
 func main() {
@@ -69,8 +63,6 @@ func main() {
 				}
 			case size.Event:
 				sz = e
-				touchX = float32(sz.WidthPx / 2)
-				touchY = float32(sz.HeightPx / 2)
 			case paint.Event:
 				if glctx == nil || e.External {
 					// As we are actively painting as fast as
@@ -86,24 +78,26 @@ func main() {
 				a.Send(paint.Event{})
 			case touch.Event:
 				vs.touch(e)
-				touchX = e.X
-				touchY = e.Y
 			}
 		}
 	})
 }
 
 type viewState struct {
-	touchChange touch.Event
-
-	tc chan touch.Event
+	touchChange  touch.Event
+	tc           chan touch.Event
+	percentColor float32
+	lastDraw     time.Time
+	lastTouch    time.Time
 
 	sq *Square
 }
 
 func newViewState() *viewState {
 	return &viewState{
-		tc: make(chan touch.Event, 100),
+		tc:          make(chan touch.Event, 100),
+		lastDraw:    time.Now(),
+		touchChange: touch.Event{Type: 200},
 	}
 }
 
@@ -126,25 +120,58 @@ func (vs *viewState) touch(t touch.Event) {
 }
 
 func (vs *viewState) draw(glctx gl.Context, sz size.Event) {
+	now := time.Now()
+	diff := now.Sub(vs.lastDraw)
+	vs.percentColor -= float32(diff.Seconds() * 0.5)
+	if vs.percentColor < 0 {
+		vs.percentColor = 0
+	}
+	vs.lastDraw = now
+
 	select {
 	case change := <-vs.tc:
 		vs.touchChange = change
-		glctx.ClearColor(0, 1, 0, 1)
 	default:
-		glctx.ClearColor(0, 0, 1, 1)
-	}
-	switch vs.touchChange.Type {
-	default:
-		glctx.ClearColor(0, 0, 1, 1)
-	case touch.TypeMove:
-		glctx.ClearColor(0, 1, 1, 1)
-	case touch.TypeBegin:
-		glctx.ClearColor(1, 0, 1, 1)
-	case touch.TypeEnd:
-		glctx.ClearColor(0, 1, 0, 1)
 	}
 
+	switch vs.touchChange.Type {
+	case touch.TypeMove:
+	case touch.TypeBegin:
+		now := time.Now()
+		if vs.lastTouch.Add(time.Millisecond * 1000).Before(now) {
+			vs.lastTouch = now
+			vs.percentColor = 0.5
+			go func() {
+				err := sendSignal()
+				if err != nil {
+					log.Printf("signal error %v", err)
+				}
+			}()
+		}
+	case touch.TypeEnd:
+	}
+	glctx.ClearColor(vs.percentColor, vs.percentColor, vs.percentColor, 1)
 	glctx.Clear(gl.COLOR_BUFFER_BIT)
 
 	vs.sq.Draw(glctx, sz, "Garage door opener", "Tap to toggle garage door")
+}
+
+func sendSignal() error {
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, time.Second*2)
+	defer cancel()
+
+	req, err := http.NewRequest("GET", "http://garage:8080?k=ABCZYX", nil)
+	if err != nil {
+		return err
+	}
+	req = req.WithContext(ctx)
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	res.Body.Close()
+
+	return nil
 }
