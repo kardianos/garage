@@ -1,0 +1,19 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "CoizPswqN4YjqSWL5xYX95wwu80=",
+			"path": "github.com/davecheney/gpio",
+			"revision": "a6de66e7e47065fca1a55c62c3f3cab3144694e6",
+			"revisionTime": "2016-09-12T02:49:57Z"
+		},
+		{
+			"checksumSHA1": "NKeg+u/G5zCunl6W4kO5nUdPBso=",
+			"path": "github.com/davecheney/gpio/rpi",
+			"revision": "a6de66e7e47065fca1a55c62c3f3cab3144694e6",
+			"revisionTime": "2016-09-12T02:49:57Z"
+		}
+	],
+	"rootPath": "github.com/kardianos/garage/opener"
+}
