@@ -3,6 +3,36 @@
 	"ignore": "test",
 	"package": [
 		{
+			"checksumSHA1": "EpeskBwM9/GEnqKX7G1y6EGg0iQ=",
+			"path": "github.com/cloudflare/backoff",
+			"revision": "f659644c644c7ac3564c8acba556d8d74a07c547",
+			"revisionTime": "2016-09-16T21:02:38Z"
+		},
+		{
+			"checksumSHA1": "CoizPswqN4YjqSWL5xYX95wwu80=",
+			"path": "github.com/davecheney/gpio",
+			"revision": "a6de66e7e47065fca1a55c62c3f3cab3144694e6",
+			"revisionTime": "2016-09-12T02:49:57Z"
+		},
+		{
+			"checksumSHA1": "NKeg+u/G5zCunl6W4kO5nUdPBso=",
+			"path": "github.com/davecheney/gpio/rpi",
+			"revision": "a6de66e7e47065fca1a55c62c3f3cab3144694e6",
+			"revisionTime": "2016-09-12T02:49:57Z"
+		},
+		{
+			"checksumSHA1": "P9TcnlTnNo3GKeVVTRV1HDDl7oE=",
+			"path": "github.com/dchest/dhgroup14",
+			"revision": "fcdeb176be79fe7197d15562e9cffa50e81cda0f",
+			"revisionTime": "2016-03-30T19:47:02Z"
+		},
+		{
+			"checksumSHA1": "hQs0cFSRaRxnxdmhsBi1wRuiDlg=",
+			"path": "github.com/dchest/spipe",
+			"revision": "3e93270037308f349a22b62e218ada049fcaeb14",
+			"revisionTime": "2014-12-11T08:21:55Z"
+		},
+		{
 			"checksumSHA1": "w01kP96jx5UAf+uWB8m0w8Xghas=",
 			"path": "github.com/golang/freetype",
 			"revision": "38b4c392adc5eed94207994c4848fff99f4ac234",
@@ -19,6 +49,18 @@
 			"path": "github.com/golang/freetype/truetype",
 			"revision": "38b4c392adc5eed94207994c4848fff99f4ac234",
 			"revisionTime": "2016-06-26T06:51:47Z"
+		},
+		{
+			"checksumSHA1": "2HSjyUZ4IMkCeA34TjJ0/f+Kk/k=",
+			"path": "github.com/pkg/errors",
+			"revision": "8ec4b99f5bad732ffaa7dbce5bae53cd2b770301",
+			"revisionTime": "2016-07-23T19:30:21Z"
+		},
+		{
+			"checksumSHA1": "1MGpGDQqnUoRpv7VEcQrXOBydXE=",
+			"path": "golang.org/x/crypto/pbkdf2",
+			"revision": "b07d8c96772f426812d3fc5530710ec1f3b205e7",
+			"revisionTime": "2016-10-26T23:47:36Z"
 		},
 		{
 			"checksumSHA1": "o+8bZXqYjf4o/8pClNtZtF40EGw=",
@@ -189,5 +231,5 @@
 			"revisionTime": "2016-11-25T20:53:50Z"
 		}
 	],
-	"rootPath": "github.com/kardianos/garage/gclient"
+	"rootPath": "github.com/kardianos/garage"
 }

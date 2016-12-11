@@ -4,37 +4,21 @@
 
 // +build darwin linux
 
-// An app that draws a green triangle on a red background.
-//
-// Note: This demo is an early preview of Go 1.5. In order to build this
-// program as an Android APK using the gomobile tool.
-//
-// See http://godoc.org/golang.org/x/mobile/cmd/gomobile to install gomobile.
-//
-// Get the basic example and use gomobile to build or install it on your device.
-//
-//   $ go get -d golang.org/x/mobile/example/basic
-//   $ gomobile build golang.org/x/mobile/example/basic # will build an APK
-//
-//   # plug your Android device to your computer or start an Android emulator.
-//   # if you have adb installed on your machine, use gomobile install to
-//   # build and deploy the APK to an Android target.
-//   $ gomobile install golang.org/x/mobile/example/basic
-//
-// Switch to your device or emulator to start the Basic application from
-// the launcher.
-// You can also run the application on your desktop by running the command
-// below. (Note: It currently doesn't work on Windows.)
-//   $ go install golang.org/x/mobile/example/basic && basic
 package main
 
 import (
-	"context"
+	"errors"
+	"fmt"
 	"log"
-	"net/http"
+	"net"
 	"os"
+	"sync"
 	"time"
 
+	"github.com/kardianos/garage/comm"
+
+	"github.com/cloudflare/backoff"
+	"github.com/dchest/spipe"
 	"golang.org/x/mobile/app"
 	"golang.org/x/mobile/event/lifecycle"
 	"golang.org/x/mobile/event/paint"
@@ -91,6 +75,13 @@ type viewState struct {
 	lastTouch    time.Time
 
 	sq *Square
+
+	toggle  chan struct{}
+	onClose chan struct{}
+
+	mu      sync.RWMutex
+	pingOk  bool
+	connErr error
 }
 
 func newViewState() *viewState {
@@ -98,6 +89,86 @@ func newViewState() *viewState {
 		tc:          make(chan touch.Event, 100),
 		lastDraw:    time.Now(),
 		touchChange: touch.Event{Type: 200},
+	}
+}
+
+func (vs *viewState) startConn() {
+	opTimeout := time.Second * 3
+	dialer := net.Dialer{
+		Timeout: opTimeout,
+	}
+	backer := backoff.New(opTimeout, time.Millisecond*100)
+	var errClosed = errors.New("closed")
+	do := func() error {
+		tconn, err := dialer.Dial("tcp", fmt.Sprintf("%s:%d", comm.Host(), comm.Port()))
+		if err != nil {
+			return err
+		}
+
+		conn := spipe.Client([]byte("ABC"), tconn)
+		err = comm.Handshake(opTimeout, conn)
+		if err != nil {
+			return err
+		}
+		backer.Reset()
+
+		vs.mu.Lock()
+		vs.pingOk = true
+		vs.connErr = nil
+		vs.mu.Unlock()
+
+		ticker := time.NewTicker(opTimeout / 3)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-vs.onClose:
+				err = comm.WriteCmd(opTimeout, conn, comm.CmdReqClose)
+				if err == nil {
+					comm.ReadCmd(opTimeout, conn)
+				}
+				conn.Close()
+				return errClosed
+			case <-vs.toggle:
+				err = comm.WriteCmd(opTimeout, conn, comm.CmdReqToggle)
+				if err != nil {
+					return err
+				}
+				_, err = comm.ReadCmd(opTimeout, conn)
+				if err != nil {
+					return err
+				}
+			case <-ticker.C:
+				err = comm.WriteCmd(opTimeout, conn, comm.CmdReqPing)
+				if err != nil {
+					return err
+				}
+				var resp comm.CmdType
+				resp, err = comm.ReadCmd(opTimeout, conn)
+				if err != nil {
+					return err
+				}
+				vs.mu.Lock()
+				vs.pingOk = resp == comm.CmdRespOK
+				vs.mu.Unlock()
+			}
+		}
+	}
+	for {
+		err := do()
+		if err == errClosed {
+			return
+		}
+		if err != nil {
+			vs.mu.Lock()
+			vs.connErr = err
+			vs.mu.Unlock()
+
+			time.Sleep(backer.Duration())
+			continue
+		}
+		backer.Reset()
+		continue
 	}
 }
 
@@ -109,9 +180,17 @@ func (vs *viewState) start(glctx gl.Context) {
 		os.Exit(1)
 	}
 	vs.sq.SetLocation(0, 10)
+
+	vs.mu.Lock()
+	vs.toggle = make(chan struct{})
+	vs.onClose = make(chan struct{})
+	vs.pingOk = false
+	vs.mu.Unlock()
+	go vs.startConn()
 }
 func (vs *viewState) end(glctx gl.Context) {
 	vs.sq.Close(glctx)
+	close(vs.onClose)
 }
 func (vs *viewState) touch(t touch.Event) {
 	log.Printf("Location: %vx%v, Change: %v", t.X, t.Y, t.Type)
@@ -141,37 +220,32 @@ func (vs *viewState) draw(glctx gl.Context, sz size.Event) {
 		if vs.lastTouch.Add(time.Millisecond * 1000).Before(now) {
 			vs.lastTouch = now
 			vs.percentColor = 0.5
-			go func() {
-				err := sendSignal()
-				if err != nil {
-					log.Printf("signal error %v", err)
-				}
-			}()
+			vs.toggle <- struct{}{}
 		}
 	case touch.TypeEnd:
 	}
-	glctx.ClearColor(vs.percentColor, vs.percentColor, vs.percentColor, 1)
+
+	var pingOk bool
+	var connErr error
+	vs.mu.RLock()
+	pingOk = vs.pingOk
+	connErr = vs.connErr
+	vs.mu.RUnlock()
+
+	var r, g, b = vs.percentColor, vs.percentColor, vs.percentColor
+	if pingOk {
+		r, b = 0, 0
+	} else {
+		g, b = 0, 0
+	}
+
+	glctx.ClearColor(r, g, b, 1)
 	glctx.Clear(gl.COLOR_BUFFER_BIT)
 
-	vs.sq.Draw(glctx, sz, "Garage door opener", "Tap to toggle garage door")
-}
-
-func sendSignal() error {
-	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, time.Second*2)
-	defer cancel()
-
-	req, err := http.NewRequest("GET", "http://garage:8080?k=ABCZYX", nil)
-	if err != nil {
-		return err
+	msg := "Tap to toggle garage door"
+	if connErr != nil {
+		msg = connErr.Error()
 	}
-	req = req.WithContext(ctx)
 
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	res.Body.Close()
-
-	return nil
+	vs.sq.Draw(glctx, sz, "Garage door opener", msg)
 }

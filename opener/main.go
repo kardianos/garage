@@ -2,27 +2,72 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
-	"net/http"
 	"time"
 
-	"github.com/davecheney/gpio"
-	"github.com/davecheney/gpio/rpi"
+	"github.com/kardianos/garage/comm"
+
+	"github.com/dchest/spipe"
 )
 
 func main() {
 	sig := runOutput()
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		key := r.URL.Query().Get("k")
-		if key != "ABCZYX" {
-			return
-		}
-		fmt.Fprintf(w, "Door Toggle")
-		sig <- struct{}{}
-	})
-	err := http.ListenAndServe(":8080", nil)
+
+	on := fmt.Sprintf(":%d", comm.Port())
+	listener, err := spipe.Listen([]byte("ABC"), "tcp", on)
 	if err != nil {
-		log.Fatalf("Failed to serve http: %s", err.Error())
+		log.Fatalf("Failed to listen on port %q", on)
+	}
+
+	for {
+		conn, err := listener.Accept()
+		if err == io.EOF {
+			log.Fatal("Listener closed")
+		}
+		if err != nil {
+			log.Println("listener %v", err)
+			continue
+		}
+		go func() {
+			err := handle(sig, conn.(*spipe.Conn))
+			if err == io.EOF {
+				return
+			}
+			if err != nil {
+				log.Printf("handle %+v", err)
+			}
+		}()
+	}
+}
+
+func handle(sig chan struct{}, conn *spipe.Conn) error {
+	opTimeout := time.Second * 3
+	for {
+		cmd, err := comm.ReadCmd(opTimeout, conn)
+		if err == comm.ErrTimeout {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		switch cmd {
+		case comm.CmdReqPing:
+			err = comm.WriteCmd(opTimeout, conn, comm.CmdRespOK)
+			if err != nil {
+				return err
+			}
+		case comm.CmdReqClose:
+			comm.WriteCmd(opTimeout, conn, comm.CmdRespOK)
+			conn.Close()
+			return nil
+		case comm.CmdReqToggle:
+			err = comm.WriteCmd(opTimeout, conn, comm.CmdRespOK)
+			if err != nil {
+				return err
+			}
+			sig <- struct{}{}
+		}
 	}
 }
 
@@ -30,22 +75,4 @@ func runOutput() chan struct{} {
 	sig := make(chan struct{}, 3)
 	go outputLoop(sig)
 	return sig
-}
-
-func outputLoop(sig chan struct{}) {
-	pin, err := rpi.OpenPin(rpi.GPIO17, gpio.ModeOutput)
-	if err != nil {
-		log.Fatalf("Can't open pin: %s", err.Error())
-	}
-	defer pin.Close()
-	pin.Set()
-	for {
-		select {
-		case <-sig:
-			pin.Clear()
-			time.Sleep(time.Millisecond * 300)
-			pin.Set()
-			time.Sleep(time.Millisecond * 300)
-		}
-	}
 }

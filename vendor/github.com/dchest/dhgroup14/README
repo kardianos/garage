@@ -1,0 +1,25 @@
+Package dhgroup14 implements blinded Diffie-Hellman key agreement with
+2048-bit group #14 modulus from RFC 3526. Computations are performed with
+blinding to avoid timing attacks, and values are plus 2^258.
+
+This is the same algorithm used by libcperciva (Tarsnap, spipe, etc.)
+See http://mail.tarsnap.com/spiped/msg00071.html for details.
+
+
+INSTALLATION
+
+	go get github.com/dchest/dhgroup14
+
+DOCUMENTATION
+
+	http://godoc.org/github.com/dchest/dhgroup14
+
+
+PUBLIC DOMAIN DEDICATION
+
+Written in 2013 by Dmitry Chestnykh.
+
+To the extent possible under law, the author have dedicated all copyright
+and related and neighboring rights to this software to the public domain
+worldwide. This software is distributed without any warranty.
+http://creativecommons.org/publicdomain/zero/1.0/
