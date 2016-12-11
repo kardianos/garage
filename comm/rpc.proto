@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package comm;
+
+service Garage {
+	rpc Ping(Noop) returns (Noop);
+	rpc Toggle(Noop) returns (Noop);
+}
+
+message Noop {}

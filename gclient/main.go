@@ -1,16 +1,11 @@
-// Copyright 2014 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
-// +build darwin linux
-
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"sync"
 	"time"
@@ -18,13 +13,15 @@ import (
 	"github.com/kardianos/garage/comm"
 
 	"github.com/cloudflare/backoff"
-	"github.com/dchest/spipe"
 	"golang.org/x/mobile/app"
 	"golang.org/x/mobile/event/lifecycle"
 	"golang.org/x/mobile/event/paint"
 	"golang.org/x/mobile/event/size"
 	"golang.org/x/mobile/event/touch"
 	"golang.org/x/mobile/gl"
+	"golang.org/x/net/context"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 func main() {
@@ -76,7 +73,7 @@ type viewState struct {
 
 	sq *Square
 
-	toggle  chan struct{}
+	toggle  chan time.Time
 	onClose chan struct{}
 
 	mu      sync.RWMutex
@@ -92,64 +89,67 @@ func newViewState() *viewState {
 	}
 }
 
+// TODO Specify auth.
+// TODO Create new certs.
+
 func (vs *viewState) startConn() {
-	opTimeout := time.Second * 3
-	dialer := net.Dialer{
-		Timeout: opTimeout,
+	certpool := x509.NewCertPool()
+	if !certpool.AppendCertsFromPEM(comm.CA()) { // Add CA public cert.
+		panic("failed to add cert")
 	}
-	backer := backoff.New(opTimeout, time.Millisecond*100)
-	var errClosed = errors.New("closed")
+	creds := credentials.NewTLS(&tls.Config{
+		RootCAs: certpool,
+	})
+
+	errClosed := errors.New("closed")
+	backer := backoff.New(time.Millisecond*500, time.Millisecond*10)
+
 	do := func() error {
-		tconn, err := dialer.Dial("tcp", fmt.Sprintf("%s:%d", comm.Host(), comm.Port()))
+		conn, err := grpc.Dial(fmt.Sprintf("%s:%d", comm.Host(), comm.Port()),
+			grpc.WithTimeout(time.Second*3),
+			grpc.FailOnNonTempDialError(true),
+			grpc.WithTransportCredentials(creds),
+			//			grpc.WithPerRPCCredentials(jwtCreds),
+		)
 		if err != nil {
 			return err
 		}
+		defer conn.Close()
 
-		conn := spipe.Client([]byte("ABC"), tconn)
-		err = comm.Handshake(opTimeout, conn)
+		client := comm.NewGarageClient(conn)
+		ctx := context.TODO()
+		noop := &comm.Noop{}
+		_, err = client.Ping(ctx, noop)
 		if err != nil {
 			return err
 		}
-		backer.Reset()
-
 		vs.mu.Lock()
-		vs.pingOk = true
 		vs.connErr = nil
+		vs.pingOk = true
 		vs.mu.Unlock()
 
-		ticker := time.NewTicker(opTimeout / 3)
+		ticker := time.NewTicker(time.Millisecond * 3000)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-vs.onClose:
-				err = comm.WriteCmd(opTimeout, conn, comm.CmdReqClose)
-				if err == nil {
-					comm.ReadCmd(opTimeout, conn)
-				}
-				conn.Close()
 				return errClosed
-			case <-vs.toggle:
-				err = comm.WriteCmd(opTimeout, conn, comm.CmdReqToggle)
-				if err != nil {
-					return err
+			case tm := <-vs.toggle:
+				if tm.Add(time.Second * 4).Before(time.Now()) {
+					continue
 				}
-				_, err = comm.ReadCmd(opTimeout, conn)
+				_, err = client.Toggle(ctx, noop)
 				if err != nil {
 					return err
 				}
 			case <-ticker.C:
-				err = comm.WriteCmd(opTimeout, conn, comm.CmdReqPing)
-				if err != nil {
-					return err
-				}
-				var resp comm.CmdType
-				resp, err = comm.ReadCmd(opTimeout, conn)
+				_, err = client.Ping(ctx, noop)
 				if err != nil {
 					return err
 				}
 				vs.mu.Lock()
-				vs.pingOk = resp == comm.CmdRespOK
+				vs.pingOk = true
 				vs.mu.Unlock()
 			}
 		}
@@ -162,6 +162,7 @@ func (vs *viewState) startConn() {
 		if err != nil {
 			vs.mu.Lock()
 			vs.connErr = err
+			vs.pingOk = false
 			vs.mu.Unlock()
 
 			time.Sleep(backer.Duration())
@@ -182,7 +183,7 @@ func (vs *viewState) start(glctx gl.Context) {
 	vs.sq.SetLocation(0, 10)
 
 	vs.mu.Lock()
-	vs.toggle = make(chan struct{})
+	vs.toggle = make(chan time.Time)
 	vs.onClose = make(chan struct{})
 	vs.pingOk = false
 	vs.mu.Unlock()
@@ -202,8 +203,8 @@ func (vs *viewState) draw(glctx gl.Context, sz size.Event) {
 	now := time.Now()
 	diff := now.Sub(vs.lastDraw)
 	vs.percentColor -= float32(diff.Seconds() * 0.5)
-	if vs.percentColor < 0 {
-		vs.percentColor = 0
+	if vs.percentColor < .1 {
+		vs.percentColor = .1
 	}
 	vs.lastDraw = now
 
@@ -220,7 +221,10 @@ func (vs *viewState) draw(glctx gl.Context, sz size.Event) {
 		if vs.lastTouch.Add(time.Millisecond * 1000).Before(now) {
 			vs.lastTouch = now
 			vs.percentColor = 0.5
-			vs.toggle <- struct{}{}
+			select {
+			default:
+			case vs.toggle <- now:
+			}
 		}
 	case touch.TypeEnd:
 	}
