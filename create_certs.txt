@@ -1,0 +1,13 @@
+# Create CA
+openssl genrsa -out ca.key 4096
+openssl req -x509 -new -nodes -key ca.key -days 3650 -out ca.pem
+
+# Create Host Cert
+openssl genrsa -out key.pem 4096
+
+# create CSR
+openssl req -new -sha256 -key key.pem -out host.csr
+
+# create host cert
+openssl x509 -req -in host.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 3650 -out cert.pem
+
