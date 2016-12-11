@@ -2,3 +2,4 @@ gclient/gclient.apk
 gclient/gclient
 comm/key.go
 opener/opener
+certs/
