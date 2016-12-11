@@ -89,9 +89,6 @@ func newViewState() *viewState {
 	}
 }
 
-// TODO Specify auth.
-// TODO Create new certs.
-
 func (vs *viewState) startConn() {
 	certpool := x509.NewCertPool()
 	if !certpool.AppendCertsFromPEM(comm.CA()) { // Add CA public cert.
@@ -109,7 +106,6 @@ func (vs *viewState) startConn() {
 			grpc.WithTimeout(time.Second*3),
 			grpc.FailOnNonTempDialError(true),
 			grpc.WithTransportCredentials(creds),
-			//			grpc.WithPerRPCCredentials(jwtCreds),
 		)
 		if err != nil {
 			return err
@@ -128,7 +124,7 @@ func (vs *viewState) startConn() {
 		vs.pingOk = true
 		vs.mu.Unlock()
 
-		ticker := time.NewTicker(time.Millisecond * 3000)
+		ticker := time.NewTicker(time.Millisecond * 1500)
 		defer ticker.Stop()
 
 		for {
