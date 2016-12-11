@@ -199,8 +199,8 @@ func (vs *viewState) draw(glctx gl.Context, sz size.Event) {
 	now := time.Now()
 	diff := now.Sub(vs.lastDraw)
 	vs.percentColor -= float32(diff.Seconds() * 0.5)
-	if vs.percentColor < .1 {
-		vs.percentColor = .1
+	if vs.percentColor < .25 {
+		vs.percentColor = .25
 	}
 	vs.lastDraw = now
 
