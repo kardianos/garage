@@ -100,11 +100,13 @@ func (vs *viewState) startConn() {
 
 	errClosed := errors.New("closed")
 	backer := backoff.New(time.Millisecond*500, time.Millisecond*10)
+	dnsName := fmt.Sprintf("%s:%d", comm.Host(), comm.Port())
+	timeout := time.Millisecond * 1000
 
 	do := func() error {
-		conn, err := grpc.Dial(fmt.Sprintf("%s:%d", comm.Host(), comm.Port()),
-			grpc.WithTimeout(time.Second*3),
-			grpc.FailOnNonTempDialError(true),
+		conn, err := grpc.Dial(dnsName,
+			grpc.WithTimeout(timeout),
+			// grpc.FailOnNonTempDialError(true),
 			grpc.WithTransportCredentials(creds),
 		)
 		if err != nil {
@@ -113,18 +115,19 @@ func (vs *viewState) startConn() {
 		defer conn.Close()
 
 		client := comm.NewGarageClient(conn)
-		ctx := context.TODO()
+		ctx := context.Background()
 		noop := &comm.Noop{}
 		_, err = client.Ping(ctx, noop)
 		if err != nil {
 			return err
 		}
+		ctx = context.Background()
 		vs.mu.Lock()
 		vs.connErr = nil
 		vs.pingOk = true
 		vs.mu.Unlock()
 
-		ticker := time.NewTicker(time.Millisecond * 1500)
+		ticker := time.NewTicker(time.Millisecond * 200)
 		defer ticker.Stop()
 
 		for {
