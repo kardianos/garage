@@ -1,13 +1,7 @@
 package comm
 
-type CmdType byte
-
-const (
-	CmdRespOK    CmdType = 200
-	CmdRespFail          = 500
-	CmdReqPing           = 100
-	CmdReqClose          = 101
-	CmdReqToggle         = 150
+import (
+	"crypto/tls"
 )
 
 func Port() int {
@@ -29,3 +23,22 @@ func Cert() []byte {
 func Key() []byte {
 	return []byte(key)
 }
+
+func AuthKey() string {
+	return authKey
+}
+
+const (
+	AuthHeader = "x-auth"
+	PathPing   = "/api/ping"
+	PathToggle = "/api/toggle"
+)
+
+var (
+	Ciphers = []uint16{
+		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+		tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+
+		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+	}
+)

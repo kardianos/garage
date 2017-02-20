@@ -3,25 +3,21 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/kardianos/garage/comm"
 
-	"github.com/cloudflare/backoff"
 	"golang.org/x/mobile/app"
 	"golang.org/x/mobile/event/lifecycle"
 	"golang.org/x/mobile/event/paint"
 	"golang.org/x/mobile/event/size"
 	"golang.org/x/mobile/event/touch"
 	"golang.org/x/mobile/gl"
-	"golang.org/x/net/context"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
 func main() {
@@ -75,6 +71,7 @@ type viewState struct {
 
 	toggle  chan time.Time
 	onClose chan struct{}
+	client  *http.Client
 
 	mu      sync.RWMutex
 	pingOk  bool
@@ -82,94 +79,80 @@ type viewState struct {
 }
 
 func newViewState() *viewState {
-	return &viewState{
-		tc:          make(chan touch.Event, 100),
-		lastDraw:    time.Now(),
-		touchChange: touch.Event{Type: 200},
-	}
-}
-
-func (vs *viewState) startConn() {
 	certpool := x509.NewCertPool()
 	if !certpool.AppendCertsFromPEM(comm.CA()) { // Add CA public cert.
 		panic("failed to add cert")
 	}
-	creds := credentials.NewTLS(&tls.Config{
-		RootCAs: certpool,
-	})
+	tlsConfig := &tls.Config{
+		RootCAs:      certpool,
+		CipherSuites: comm.Ciphers,
+	}
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig:     tlsConfig,
+			TLSHandshakeTimeout: 10 * time.Second,
+		},
+	}
 
-	errClosed := errors.New("closed")
-	backer := backoff.New(time.Millisecond*500, time.Millisecond*10)
+	return &viewState{
+		tc:          make(chan touch.Event, 100),
+		lastDraw:    time.Now(),
+		touchChange: touch.Event{Type: 200},
+		client:      client,
+	}
+}
+
+func (vs *viewState) startConn() {
 	dnsName := fmt.Sprintf("%s:%d", comm.Host(), comm.Port())
-	timeout := time.Millisecond * 1000
+	var err error
 
-	do := func() error {
-		conn, err := grpc.Dial(dnsName,
-			grpc.WithTimeout(timeout),
-			// grpc.FailOnNonTempDialError(true),
-			grpc.WithTransportCredentials(creds),
-		)
-		if err != nil {
-			return err
-		}
-		defer conn.Close()
+	err = vs.do(dnsName + comm.PathPing)
+	vs.setPing(err)
 
-		client := comm.NewGarageClient(conn)
-		ctx := context.Background()
-		noop := &comm.Noop{}
-		_, err = client.Ping(ctx, noop)
-		if err != nil {
-			return err
-		}
-		ctx = context.Background()
-		vs.mu.Lock()
-		vs.connErr = nil
-		vs.pingOk = true
-		vs.mu.Unlock()
+	ticker := time.NewTicker(2500 * time.Second)
 
-		ticker := time.NewTicker(time.Millisecond * 200)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-vs.onClose:
-				return errClosed
-			case tm := <-vs.toggle:
-				if tm.Add(time.Second * 4).Before(time.Now()) {
-					continue
-				}
-				_, err = client.Toggle(ctx, noop)
-				if err != nil {
-					return err
-				}
-			case <-ticker.C:
-				_, err = client.Ping(ctx, noop)
-				if err != nil {
-					return err
-				}
-				vs.mu.Lock()
-				vs.pingOk = true
-				vs.mu.Unlock()
-			}
-		}
-	}
 	for {
-		err := do()
-		if err == errClosed {
+		select {
+		case <-vs.onClose:
 			return
-		}
-		if err != nil {
-			vs.mu.Lock()
-			vs.connErr = err
-			vs.pingOk = false
-			vs.mu.Unlock()
+		case tm := <-vs.toggle:
+			if tm.Add(time.Second * 4).Before(time.Now()) {
+				continue
+			}
+			err = vs.do(dnsName + comm.PathToggle)
+			vs.setPing(err)
 
-			time.Sleep(backer.Duration())
-			continue
+		case <-ticker.C:
+			err = vs.do(dnsName + comm.PathPing)
+			vs.setPing(err)
 		}
-		backer.Reset()
-		continue
 	}
+}
+func (vs *viewState) do(to string) error {
+	req, err := http.NewRequest("POST", "https://"+to, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set(comm.AuthHeader, comm.AuthKey())
+	resp, err := vs.client.Do(req)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("code %d", resp.StatusCode)
+	}
+	if resp.Body != nil {
+		resp.Body.Close()
+	}
+	return nil
+}
+func (vs *viewState) setPing(err error) {
+	vs.mu.Lock()
+	vs.pingOk = err == nil
+	vs.connErr = err
+	vs.mu.Unlock()
+	fmt.Println(err)
 }
 
 func (vs *viewState) start(glctx gl.Context) {

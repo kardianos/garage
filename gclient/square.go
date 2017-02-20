@@ -31,7 +31,7 @@ type Square struct {
 
 func NewSquare(glctx gl.Context, inc, x, y float32) (*Square, error) {
 	images := glutil.NewImages(glctx)
-	img1 := images.NewImage(800, 200)
+	img1 := images.NewImage(1600, 200)
 
 	ftctx := freetype.NewContext()
 	ftFont, err := freetype.ParseFont(font.Default())
@@ -74,7 +74,7 @@ func (sq *Square) Draw(glctx gl.Context, sz size.Event, major, minor string) {
 	ftctx.SetFontSize(12)
 	ftctx.DrawString(major, fixed.Point26_6{X: 100, Y: 7000})
 
-	ftctx.SetFontSize(10)
+	ftctx.SetFontSize(6)
 	ftctx.DrawString(minor, fixed.Point26_6{X: 100, Y: 11000})
 
 	b := sq.img1.RGBA.Bounds()

@@ -6,6 +6,8 @@ var port = 0
 
 var host = "secure-server.example.com"
 
+var authKey = `insecure`
+
 var ca = `-----BEGIN CERTIFICATE-----
 MIIDwjCCAqqgAwIBAgIUVZMnDvLMv9tegZqTf0MQMpP5ZJAwDQYJKoZIhvcNAQEL
 BQAwZzELMAkGA1UEBhMCVVMxDzANBgNVBAgTBk9yZWdvbjERMA8GA1UEBxMIUG9y
