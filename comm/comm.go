@@ -28,10 +28,20 @@ func AuthKey() string {
 	return authKey
 }
 
+type Request struct {
+	Auth string
+	Type string
+}
+
+type Response struct {
+	OK      bool
+	Message string
+}
+
 const (
-	AuthHeader = "x-auth"
-	PathPing   = "/api/ping"
-	PathToggle = "/api/toggle"
+	RequestPing   = "ping"
+	RequestToggle = "toggle"
+	RequestClose  = "close"
 )
 
 var (

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
+	"net"
 	"os"
 	"sync"
 	"time"
@@ -71,11 +73,13 @@ type viewState struct {
 
 	toggle  chan time.Time
 	onClose chan struct{}
-	client  *http.Client
 
 	mu      sync.RWMutex
 	pingOk  bool
 	connErr error
+
+	tlsConfig *tls.Config
+	cancel    func()
 }
 
 func newViewState() *viewState {
@@ -86,73 +90,144 @@ func newViewState() *viewState {
 	tlsConfig := &tls.Config{
 		RootCAs:      certpool,
 		CipherSuites: comm.Ciphers,
-	}
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig:     tlsConfig,
-			TLSHandshakeTimeout: 10 * time.Second,
-		},
+		ServerName:   comm.Host(),
 	}
 
 	return &viewState{
 		tc:          make(chan touch.Event, 100),
 		lastDraw:    time.Now(),
 		touchChange: touch.Event{Type: 200},
-		client:      client,
+
+		tlsConfig: tlsConfig,
 	}
 }
 
-func (vs *viewState) startConn() {
-	dnsName := fmt.Sprintf("%s:%d", comm.Host(), comm.Port())
+type dialer struct {
+	tlsConfig *tls.Config
+	host      string
+	port      int
+
+	conn    *tls.Conn
+	err     error
+	encoder *json.Encoder
+	decoder *json.Decoder
+}
+
+func (d *dialer) open(ctx context.Context) error {
+	if d.conn != nil {
+		d.conn.Close()
+	}
+	dnsCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	names, err := net.DefaultResolver.LookupIPAddr(dnsCtx, d.host)
+	cancel()
+	if err != nil {
+		return err
+	}
+	if len(names) == 0 {
+		return fmt.Errorf("no addrs for host %q", d.host)
+	}
+	result := make(chan *tls.Conn, 2)
+	connCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	for _, n := range names {
+		go func(to string) {
+			dialer := net.Dialer{
+				KeepAlive: 15 * time.Second,
+			}
+			conn, err := dialer.DialContext(connCtx, "tcp", to)
+			if err != nil {
+				return
+			}
+			result <- tls.Client(conn, d.tlsConfig)
+		}(fmt.Sprintf("%s:%d", n.String(), d.port))
+	}
+	select {
+	case <-connCtx.Done():
+		return connCtx.Err()
+	case r := <-result:
+		d.conn = r
+		d.encoder = json.NewEncoder(d.conn)
+		d.decoder = json.NewDecoder(d.conn)
+	}
+	return nil
+}
+func (d *dialer) send(ctx context.Context, req comm.Request) (comm.Response, error) {
+	resp := comm.Response{}
+	coderDone := make(chan error)
+	go func() {
+		coderDone <- d.encoder.Encode(req)
+	}()
+	select {
+	case <-ctx.Done():
+		go func() {
+			<-coderDone
+		}()
+		return resp, ctx.Err()
+	case err := <-coderDone:
+		if err != nil {
+			return resp, err
+		}
+	}
+
+	go func() {
+		coderDone <- d.decoder.Decode(&resp)
+	}()
+	select {
+	case <-ctx.Done():
+		go func() {
+			<-coderDone
+		}()
+		return resp, ctx.Err()
+	case err := <-coderDone:
+		if err != nil {
+			return resp, err
+		}
+	}
+	return resp, nil
+}
+
+func (vs *viewState) startConn(ctx context.Context) {
+	d := &dialer{host: comm.Host(), port: comm.Port(), tlsConfig: vs.tlsConfig}
 	var err error
+	for {
+		err = d.open(ctx)
+		vs.setPing(err)
+		if err == nil {
+			break
+		}
+	}
+	if d.conn != nil {
+		defer d.conn.Close()
+	}
+	go func() {
+		<-vs.onClose
+		vs.cancel()
+	}()
 
-	err = vs.do(dnsName + comm.PathPing)
-	vs.setPing(err)
-
-	ticker := time.NewTicker(2500 * time.Second)
-
+	ticker := time.NewTicker(2500 * time.Millisecond)
 	for {
 		select {
-		case <-vs.onClose:
-			return
 		case tm := <-vs.toggle:
-			if tm.Add(time.Second * 4).Before(time.Now()) {
+			if tm.Add(time.Second * 20).Before(time.Now()) {
 				continue
 			}
-			err = vs.do(dnsName + comm.PathToggle)
+			_, err := d.send(ctx, comm.Request{Auth: comm.AuthKey(), Type: comm.RequestToggle})
 			vs.setPing(err)
 
 		case <-ticker.C:
-			err = vs.do(dnsName + comm.PathPing)
+			_, err := d.send(ctx, comm.Request{Auth: comm.AuthKey(), Type: comm.RequestPing})
 			vs.setPing(err)
 		}
 	}
-}
-func (vs *viewState) do(to string) error {
-	req, err := http.NewRequest("POST", "https://"+to, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set(comm.AuthHeader, comm.AuthKey())
-	resp, err := vs.client.Do(req)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("code %d", resp.StatusCode)
-	}
-	if resp.Body != nil {
-		resp.Body.Close()
-	}
-	return nil
 }
 func (vs *viewState) setPing(err error) {
 	vs.mu.Lock()
 	vs.pingOk = err == nil
 	vs.connErr = err
 	vs.mu.Unlock()
-	fmt.Println(err)
+	if err != nil {
+		log.Println(err)
+	}
 }
 
 func (vs *viewState) start(glctx gl.Context) {
@@ -169,7 +244,9 @@ func (vs *viewState) start(glctx gl.Context) {
 	vs.onClose = make(chan struct{})
 	vs.pingOk = false
 	vs.mu.Unlock()
-	go vs.startConn()
+	var ctx context.Context
+	ctx, vs.cancel = context.WithCancel(context.Background())
+	go vs.startConn(ctx)
 }
 func (vs *viewState) end(glctx gl.Context) {
 	vs.sq.Close(glctx)
