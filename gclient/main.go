@@ -4,10 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"sync"
 	"time"
@@ -20,6 +18,8 @@ import (
 	"golang.org/x/mobile/event/size"
 	"golang.org/x/mobile/event/touch"
 	"golang.org/x/mobile/gl"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 func main() {
@@ -27,10 +27,21 @@ func main() {
 		var glctx gl.Context
 		var sz size.Event
 
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		vs := newViewState()
+		vs.startConn(ctx)
+
 		for e := range a.Events() {
 			switch e := a.Filter(e).(type) {
 			case lifecycle.Event:
+				switch e.Crosses(lifecycle.StageAlive) {
+				case lifecycle.CrossOn:
+					log.Println("start")
+				case lifecycle.CrossOff:
+					log.Println("end")
+					cancel()
+				}
 				switch e.Crosses(lifecycle.StageVisible) {
 				case lifecycle.CrossOn:
 					glctx, _ = e.DrawContext.(gl.Context)
@@ -71,152 +82,60 @@ type viewState struct {
 
 	sq *Square
 
-	toggle  chan time.Time
-	onClose chan struct{}
+	toggle chan time.Time
 
 	mu      sync.RWMutex
 	pingOk  bool
 	connErr error
-
-	tlsConfig *tls.Config
-	cancel    func()
 }
 
 func newViewState() *viewState {
-	certpool := x509.NewCertPool()
-	if !certpool.AppendCertsFromPEM(comm.CA()) { // Add CA public cert.
-		panic("failed to add cert")
-	}
-	tlsConfig := &tls.Config{
-		RootCAs:      certpool,
-		CipherSuites: comm.Ciphers,
-		ServerName:   comm.Host(),
-	}
-
 	return &viewState{
 		tc:          make(chan touch.Event, 100),
 		lastDraw:    time.Now(),
 		touchChange: touch.Event{Type: 200},
-
-		tlsConfig: tlsConfig,
 	}
 }
 
-type dialer struct {
-	tlsConfig *tls.Config
-	host      string
-	port      int
-
-	conn    *tls.Conn
-	err     error
-	encoder *json.Encoder
-	decoder *json.Decoder
-}
-
-func (d *dialer) open(ctx context.Context) error {
-	if d.conn != nil {
-		d.conn.Close()
+func (vs *viewState) runConn(ctx context.Context) {
+	certpool := x509.NewCertPool()
+	if !certpool.AppendCertsFromPEM(comm.CA()) { // Add CA public cert.
+		panic("failed to add cert")
 	}
-	dnsCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	names, err := net.DefaultResolver.LookupIPAddr(dnsCtx, d.host)
-	cancel()
+	creds := credentials.NewTLS(&tls.Config{
+		RootCAs: certpool,
+	})
+	dnsName := fmt.Sprintf("%s:%d", comm.Host(), comm.Port())
+	conn, err := grpc.DialContext(ctx, dnsName,
+		grpc.WithTransportCredentials(creds),
+	)
 	if err != nil {
-		return err
-	}
-	if len(names) == 0 {
-		return fmt.Errorf("no addrs for host %q", d.host)
-	}
-	result := make(chan *tls.Conn, 2)
-	connCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	for _, n := range names {
-		go func(to string) {
-			dialer := net.Dialer{
-				KeepAlive: 15 * time.Second,
-			}
-			conn, err := dialer.DialContext(connCtx, "tcp", to)
-			if err != nil {
-				return
-			}
-			result <- tls.Client(conn, d.tlsConfig)
-		}(fmt.Sprintf("%s:%d", n.String(), d.port))
-	}
-	select {
-	case <-connCtx.Done():
-		return connCtx.Err()
-	case r := <-result:
-		d.conn = r
-		d.encoder = json.NewEncoder(d.conn)
-		d.decoder = json.NewDecoder(d.conn)
-	}
-	return nil
-}
-func (d *dialer) send(ctx context.Context, req comm.Request) (comm.Response, error) {
-	resp := comm.Response{}
-	coderDone := make(chan error)
-	go func() {
-		coderDone <- d.encoder.Encode(req)
-	}()
-	select {
-	case <-ctx.Done():
-		go func() {
-			<-coderDone
-		}()
-		return resp, ctx.Err()
-	case err := <-coderDone:
-		if err != nil {
-			return resp, err
-		}
-	}
-
-	go func() {
-		coderDone <- d.decoder.Decode(&resp)
-	}()
-	select {
-	case <-ctx.Done():
-		go func() {
-			<-coderDone
-		}()
-		return resp, ctx.Err()
-	case err := <-coderDone:
-		if err != nil {
-			return resp, err
-		}
-	}
-	return resp, nil
-}
-
-func (vs *viewState) startConn(ctx context.Context) {
-	d := &dialer{host: comm.Host(), port: comm.Port(), tlsConfig: vs.tlsConfig}
-	var err error
-	for {
-		err = d.open(ctx)
 		vs.setPing(err)
-		if err == nil {
-			break
-		}
+		return
 	}
-	if d.conn != nil {
-		defer d.conn.Close()
-	}
-	go func() {
-		<-vs.onClose
-		vs.cancel()
-	}()
+	defer conn.Close()
 
-	ticker := time.NewTicker(2500 * time.Millisecond)
+	gc := comm.NewGarageClient(conn)
+	_, err = gc.Ping(ctx, &comm.Noop{})
+	vs.setPing(err)
+
 	for {
-		select {
-		case tm := <-vs.toggle:
-			if tm.Add(time.Second * 20).Before(time.Now()) {
-				continue
-			}
-			_, err := d.send(ctx, comm.Request{Auth: comm.AuthKey(), Type: comm.RequestToggle})
-			vs.setPing(err)
+		ticker := time.NewTicker(2500 * time.Millisecond)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case tm := <-vs.toggle:
+				if tm.Add(time.Second * 20).Before(time.Now()) {
+					continue
+				}
+				_, err = gc.Toggle(ctx, &comm.Noop{})
+				vs.setPing(err)
 
-		case <-ticker.C:
-			_, err := d.send(ctx, comm.Request{Auth: comm.AuthKey(), Type: comm.RequestPing})
-			vs.setPing(err)
+			case <-ticker.C:
+				_, err = gc.Ping(ctx, &comm.Noop{})
+				vs.setPing(err)
+			}
 		}
 	}
 }
@@ -230,6 +149,16 @@ func (vs *viewState) setPing(err error) {
 	}
 }
 
+func (vs *viewState) startConn(ctx context.Context) {
+	vs.mu.Lock()
+	vs.toggle = make(chan time.Time)
+	vs.pingOk = false
+	vs.connErr = nil
+	vs.mu.Unlock()
+
+	go vs.runConn(ctx)
+}
+
 func (vs *viewState) start(glctx gl.Context) {
 	var err error
 	vs.sq, err = NewSquare(glctx, 0.01, 1, 0.2)
@@ -239,18 +168,9 @@ func (vs *viewState) start(glctx gl.Context) {
 	}
 	vs.sq.SetLocation(0, 10)
 
-	vs.mu.Lock()
-	vs.toggle = make(chan time.Time)
-	vs.onClose = make(chan struct{})
-	vs.pingOk = false
-	vs.mu.Unlock()
-	var ctx context.Context
-	ctx, vs.cancel = context.WithCancel(context.Background())
-	go vs.startConn(ctx)
 }
 func (vs *viewState) end(glctx gl.Context) {
 	vs.sq.Close(glctx)
-	close(vs.onClose)
 }
 func (vs *viewState) touch(t touch.Event) {
 	log.Printf("Location: %vx%v, Change: %v", t.X, t.Y, t.Type)

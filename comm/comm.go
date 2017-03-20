@@ -29,8 +29,8 @@ func AuthKey() string {
 }
 
 type Request struct {
-	Auth string
 	Type string
+	Body string
 }
 
 type Response struct {
@@ -42,6 +42,9 @@ const (
 	RequestPing   = "ping"
 	RequestToggle = "toggle"
 	RequestClose  = "close"
+	RequestAuth   = "auth"
+	FromClient    = "client"
+	FromOpener    = "opener"
 )
 
 var (
