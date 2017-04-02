@@ -116,7 +116,7 @@ func (vs *viewState) runConn(ctx context.Context) {
 	defer conn.Close()
 
 	gc := comm.NewGarageClient(conn)
-	_, err = gc.Ping(ctx, &comm.Noop{})
+	_, err = gc.Ping(ctx, &comm.PingReq{})
 	vs.setPing(err)
 
 	for {
@@ -126,14 +126,14 @@ func (vs *viewState) runConn(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case tm := <-vs.toggle:
-				if tm.Add(time.Second * 20).Before(time.Now()) {
+				if tm.Add(time.Second * 10).Before(time.Now()) {
 					continue
 				}
-				_, err = gc.Toggle(ctx, &comm.Noop{})
+				_, err = gc.Toggle(ctx, &comm.ToggleReq{TimeUnix: tm.Unix()})
 				vs.setPing(err)
 
-			case <-ticker.C:
-				_, err = gc.Ping(ctx, &comm.Noop{})
+			case tm := <-ticker.C:
+				_, err = gc.Ping(ctx, &comm.PingReq{TimeUnix: tm.Unix()})
 				vs.setPing(err)
 			}
 		}
@@ -227,7 +227,7 @@ func (vs *viewState) draw(glctx gl.Context, sz size.Event) {
 
 	msg := "Tap to toggle garage door"
 	if connErr != nil {
-		msg = connErr.Error()
+		msg = grpc.ErrorDesc(connErr)
 	}
 
 	vs.sq.Draw(glctx, sz, "Garage door opener", msg)

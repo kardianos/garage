@@ -9,7 +9,12 @@ It is generated from these files:
 	rpc.proto
 
 It has these top-level messages:
-	Noop
+	FromGarage
+	ToGarage
+	PingReq
+	PingResp
+	ToggleReq
+	ToggleResp
 */
 package comm
 
@@ -33,16 +38,101 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
-type Noop struct {
+type FromGarage struct {
+	TimeUnix int64 `protobuf:"varint,1,opt,name=TimeUnix,json=timeUnix" json:"TimeUnix,omitempty"`
 }
 
-func (m *Noop) Reset()                    { *m = Noop{} }
-func (m *Noop) String() string            { return proto.CompactTextString(m) }
-func (*Noop) ProtoMessage()               {}
-func (*Noop) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
+func (m *FromGarage) Reset()                    { *m = FromGarage{} }
+func (m *FromGarage) String() string            { return proto.CompactTextString(m) }
+func (*FromGarage) ProtoMessage()               {}
+func (*FromGarage) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
+
+func (m *FromGarage) GetTimeUnix() int64 {
+	if m != nil {
+		return m.TimeUnix
+	}
+	return 0
+}
+
+type ToGarage struct {
+	TimeUnix int64 `protobuf:"varint,1,opt,name=TimeUnix,json=timeUnix" json:"TimeUnix,omitempty"`
+	Toggle   bool  `protobuf:"varint,2,opt,name=Toggle,json=toggle" json:"Toggle,omitempty"`
+}
+
+func (m *ToGarage) Reset()                    { *m = ToGarage{} }
+func (m *ToGarage) String() string            { return proto.CompactTextString(m) }
+func (*ToGarage) ProtoMessage()               {}
+func (*ToGarage) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+
+func (m *ToGarage) GetTimeUnix() int64 {
+	if m != nil {
+		return m.TimeUnix
+	}
+	return 0
+}
+
+func (m *ToGarage) GetToggle() bool {
+	if m != nil {
+		return m.Toggle
+	}
+	return false
+}
+
+type PingReq struct {
+	TimeUnix int64 `protobuf:"varint,1,opt,name=TimeUnix,json=timeUnix" json:"TimeUnix,omitempty"`
+}
+
+func (m *PingReq) Reset()                    { *m = PingReq{} }
+func (m *PingReq) String() string            { return proto.CompactTextString(m) }
+func (*PingReq) ProtoMessage()               {}
+func (*PingReq) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
+
+func (m *PingReq) GetTimeUnix() int64 {
+	if m != nil {
+		return m.TimeUnix
+	}
+	return 0
+}
+
+type PingResp struct {
+}
+
+func (m *PingResp) Reset()                    { *m = PingResp{} }
+func (m *PingResp) String() string            { return proto.CompactTextString(m) }
+func (*PingResp) ProtoMessage()               {}
+func (*PingResp) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
+
+type ToggleReq struct {
+	TimeUnix int64 `protobuf:"varint,1,opt,name=TimeUnix,json=timeUnix" json:"TimeUnix,omitempty"`
+}
+
+func (m *ToggleReq) Reset()                    { *m = ToggleReq{} }
+func (m *ToggleReq) String() string            { return proto.CompactTextString(m) }
+func (*ToggleReq) ProtoMessage()               {}
+func (*ToggleReq) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{4} }
+
+func (m *ToggleReq) GetTimeUnix() int64 {
+	if m != nil {
+		return m.TimeUnix
+	}
+	return 0
+}
+
+type ToggleResp struct {
+}
+
+func (m *ToggleResp) Reset()                    { *m = ToggleResp{} }
+func (m *ToggleResp) String() string            { return proto.CompactTextString(m) }
+func (*ToggleResp) ProtoMessage()               {}
+func (*ToggleResp) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{5} }
 
 func init() {
-	proto.RegisterType((*Noop)(nil), "comm.Noop")
+	proto.RegisterType((*FromGarage)(nil), "comm.FromGarage")
+	proto.RegisterType((*ToGarage)(nil), "comm.ToGarage")
+	proto.RegisterType((*PingReq)(nil), "comm.PingReq")
+	proto.RegisterType((*PingResp)(nil), "comm.PingResp")
+	proto.RegisterType((*ToggleReq)(nil), "comm.ToggleReq")
+	proto.RegisterType((*ToggleResp)(nil), "comm.ToggleResp")
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -56,9 +146,9 @@ const _ = grpc.SupportPackageIsVersion4
 // Client API for Garage service
 
 type GarageClient interface {
-	Ping(ctx context.Context, in *Noop, opts ...grpc.CallOption) (*Noop, error)
-	Toggle(ctx context.Context, in *Noop, opts ...grpc.CallOption) (*Noop, error)
-	Garage(ctx context.Context, in *Noop, opts ...grpc.CallOption) (Garage_GarageClient, error)
+	Ping(ctx context.Context, in *PingReq, opts ...grpc.CallOption) (*PingResp, error)
+	Toggle(ctx context.Context, in *ToggleReq, opts ...grpc.CallOption) (*ToggleResp, error)
+	Garage(ctx context.Context, opts ...grpc.CallOption) (Garage_GarageClient, error)
 }
 
 type garageClient struct {
@@ -69,8 +159,8 @@ func NewGarageClient(cc *grpc.ClientConn) GarageClient {
 	return &garageClient{cc}
 }
 
-func (c *garageClient) Ping(ctx context.Context, in *Noop, opts ...grpc.CallOption) (*Noop, error) {
-	out := new(Noop)
+func (c *garageClient) Ping(ctx context.Context, in *PingReq, opts ...grpc.CallOption) (*PingResp, error) {
+	out := new(PingResp)
 	err := grpc.Invoke(ctx, "/comm.Garage/Ping", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
@@ -78,8 +168,8 @@ func (c *garageClient) Ping(ctx context.Context, in *Noop, opts ...grpc.CallOpti
 	return out, nil
 }
 
-func (c *garageClient) Toggle(ctx context.Context, in *Noop, opts ...grpc.CallOption) (*Noop, error) {
-	out := new(Noop)
+func (c *garageClient) Toggle(ctx context.Context, in *ToggleReq, opts ...grpc.CallOption) (*ToggleResp, error) {
+	out := new(ToggleResp)
 	err := grpc.Invoke(ctx, "/comm.Garage/Toggle", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
@@ -87,23 +177,18 @@ func (c *garageClient) Toggle(ctx context.Context, in *Noop, opts ...grpc.CallOp
 	return out, nil
 }
 
-func (c *garageClient) Garage(ctx context.Context, in *Noop, opts ...grpc.CallOption) (Garage_GarageClient, error) {
+func (c *garageClient) Garage(ctx context.Context, opts ...grpc.CallOption) (Garage_GarageClient, error) {
 	stream, err := grpc.NewClientStream(ctx, &_Garage_serviceDesc.Streams[0], c.cc, "/comm.Garage/Garage", opts...)
 	if err != nil {
 		return nil, err
 	}
 	x := &garageGarageClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
 	return x, nil
 }
 
 type Garage_GarageClient interface {
-	Recv() (*Noop, error)
+	Send(*FromGarage) error
+	Recv() (*ToGarage, error)
 	grpc.ClientStream
 }
 
@@ -111,8 +196,12 @@ type garageGarageClient struct {
 	grpc.ClientStream
 }
 
-func (x *garageGarageClient) Recv() (*Noop, error) {
-	m := new(Noop)
+func (x *garageGarageClient) Send(m *FromGarage) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *garageGarageClient) Recv() (*ToGarage, error) {
+	m := new(ToGarage)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -122,9 +211,9 @@ func (x *garageGarageClient) Recv() (*Noop, error) {
 // Server API for Garage service
 
 type GarageServer interface {
-	Ping(context.Context, *Noop) (*Noop, error)
-	Toggle(context.Context, *Noop) (*Noop, error)
-	Garage(*Noop, Garage_GarageServer) error
+	Ping(context.Context, *PingReq) (*PingResp, error)
+	Toggle(context.Context, *ToggleReq) (*ToggleResp, error)
+	Garage(Garage_GarageServer) error
 }
 
 func RegisterGarageServer(s *grpc.Server, srv GarageServer) {
@@ -132,7 +221,7 @@ func RegisterGarageServer(s *grpc.Server, srv GarageServer) {
 }
 
 func _Garage_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Noop)
+	in := new(PingReq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -144,13 +233,13 @@ func _Garage_Ping_Handler(srv interface{}, ctx context.Context, dec func(interfa
 		FullMethod: "/comm.Garage/Ping",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(GarageServer).Ping(ctx, req.(*Noop))
+		return srv.(GarageServer).Ping(ctx, req.(*PingReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _Garage_Toggle_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Noop)
+	in := new(ToggleReq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -162,21 +251,18 @@ func _Garage_Toggle_Handler(srv interface{}, ctx context.Context, dec func(inter
 		FullMethod: "/comm.Garage/Toggle",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(GarageServer).Toggle(ctx, req.(*Noop))
+		return srv.(GarageServer).Toggle(ctx, req.(*ToggleReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _Garage_Garage_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(Noop)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(GarageServer).Garage(m, &garageGarageServer{stream})
+	return srv.(GarageServer).Garage(&garageGarageServer{stream})
 }
 
 type Garage_GarageServer interface {
-	Send(*Noop) error
+	Send(*ToGarage) error
+	Recv() (*FromGarage, error)
 	grpc.ServerStream
 }
 
@@ -184,8 +270,16 @@ type garageGarageServer struct {
 	grpc.ServerStream
 }
 
-func (x *garageGarageServer) Send(m *Noop) error {
+func (x *garageGarageServer) Send(m *ToGarage) error {
 	return x.ServerStream.SendMsg(m)
+}
+
+func (x *garageGarageServer) Recv() (*FromGarage, error) {
+	m := new(FromGarage)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 var _Garage_serviceDesc = grpc.ServiceDesc{
@@ -206,6 +300,7 @@ var _Garage_serviceDesc = grpc.ServiceDesc{
 			StreamName:    "Garage",
 			Handler:       _Garage_Garage_Handler,
 			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "rpc.proto",
@@ -214,12 +309,18 @@ var _Garage_serviceDesc = grpc.ServiceDesc{
 func init() { proto.RegisterFile("rpc.proto", fileDescriptor0) }
 
 var fileDescriptor0 = []byte{
-	// 103 bytes of a gzipped FileDescriptorProto
+	// 208 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0x2c, 0x2a, 0x48, 0xd6,
-	0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0x62, 0x49, 0xce, 0xcf, 0xcd, 0x55, 0x62, 0xe3, 0x62, 0xf1,
-	0xcb, 0xcf, 0x2f, 0x30, 0xca, 0xe3, 0x62, 0x73, 0x4f, 0x2c, 0x4a, 0x4c, 0x4f, 0x15, 0x92, 0xe3,
-	0x62, 0x09, 0xc8, 0xcc, 0x4b, 0x17, 0xe2, 0xd2, 0x03, 0x29, 0xd0, 0x03, 0xc9, 0x4a, 0x21, 0xb1,
-	0x85, 0x14, 0xb8, 0xd8, 0x42, 0xf2, 0xd3, 0xd3, 0x73, 0x52, 0x71, 0xaa, 0x50, 0x82, 0x9b, 0x85,
-	0x43, 0x85, 0x01, 0x63, 0x12, 0x1b, 0xd8, 0x11, 0xc6, 0x80, 0x00, 0x00, 0x00, 0xff, 0xff, 0xa8,
-	0x82, 0x26, 0x29, 0x91, 0x00, 0x00, 0x00,
+	0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0x62, 0x49, 0xce, 0xcf, 0xcd, 0x55, 0xd2, 0xe0, 0xe2, 0x72,
+	0x2b, 0xca, 0xcf, 0x75, 0x4f, 0x2c, 0x4a, 0x4c, 0x4f, 0x15, 0x92, 0xe2, 0xe2, 0x08, 0xc9, 0xcc,
+	0x4d, 0x0d, 0xcd, 0xcb, 0xac, 0x90, 0x60, 0x54, 0x60, 0xd4, 0x60, 0x0e, 0xe2, 0x28, 0x81, 0xf2,
+	0x95, 0xec, 0xb8, 0x38, 0x42, 0xf2, 0x09, 0xab, 0x13, 0x12, 0xe3, 0x62, 0x0b, 0xc9, 0x4f, 0x4f,
+	0xcf, 0x49, 0x95, 0x60, 0x52, 0x60, 0xd4, 0xe0, 0x08, 0x62, 0x2b, 0x01, 0xf3, 0x94, 0x54, 0xb9,
+	0xd8, 0x03, 0x32, 0xf3, 0xd2, 0x83, 0x52, 0x0b, 0xf1, 0x5a, 0xc3, 0xc5, 0xc5, 0x01, 0x51, 0x56,
+	0x5c, 0xa0, 0xa4, 0xce, 0xc5, 0x09, 0x31, 0x8a, 0x90, 0x26, 0x1e, 0x2e, 0x2e, 0x98, 0xc2, 0xe2,
+	0x02, 0xa3, 0x1e, 0x46, 0x2e, 0x36, 0xa8, 0x43, 0x55, 0xb9, 0x58, 0x40, 0xa6, 0x09, 0xf1, 0xea,
+	0x81, 0x7c, 0xab, 0x07, 0x75, 0x80, 0x14, 0x1f, 0x32, 0xb7, 0xb8, 0x40, 0x48, 0x1b, 0xe6, 0x66,
+	0x21, 0x7e, 0x88, 0x0c, 0xdc, 0x5a, 0x29, 0x01, 0x54, 0x81, 0xe2, 0x02, 0x21, 0x3d, 0xb8, 0xe9,
+	0x50, 0x39, 0x44, 0x00, 0xc2, 0x0c, 0x86, 0x05, 0x94, 0x06, 0xa3, 0x01, 0x63, 0x12, 0x1b, 0x38,
+	0xbc, 0x8d, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0xc3, 0x1b, 0xc6, 0x53, 0x7c, 0x01, 0x00, 0x00,
 }

@@ -3,10 +3,24 @@ syntax = "proto3";
 package comm;
 
 service Garage {
-	rpc Ping(Noop) returns (Noop);
-	rpc Toggle(Noop) returns (Noop);
+	rpc Ping(PingReq) returns (PingResp);
+	rpc Toggle(ToggleReq) returns (ToggleResp);
 	
-	rpc Garage(Noop) returns (stream Noop);
+	rpc Garage(stream FromGarage) returns (stream ToGarage);
 }
 
-message Noop {}
+message FromGarage {
+	int64 TimeUnix = 1;
+}
+message ToGarage {
+	int64 TimeUnix = 1;
+	bool Toggle = 2;
+}
+message PingReq {
+	int64 TimeUnix = 1;
+}
+message PingResp {}
+message ToggleReq {
+	int64 TimeUnix = 1;
+}
+message ToggleResp {}

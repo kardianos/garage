@@ -63,7 +63,7 @@ type mirror struct {
 	g map[comm.Garage_GarageServer]chan time.Time
 }
 
-func (m *mirror) Ping(ctx context.Context, _ *comm.Noop) (*comm.Noop, error) {
+func (m *mirror) Ping(ctx context.Context, _ *comm.PingReq) (*comm.PingResp, error) {
 	m.RLock()
 	ct := len(m.g)
 	m.RUnlock()
@@ -72,15 +72,14 @@ func (m *mirror) Ping(ctx context.Context, _ *comm.Noop) (*comm.Noop, error) {
 		return nil, errors.New("Garage Not Registered")
 	}
 
-	return &comm.Noop{}, nil
+	return &comm.PingResp{}, nil
 }
-func (m *mirror) Toggle(ctx context.Context, _ *comm.Noop) (*comm.Noop, error) {
+func (m *mirror) Toggle(ctx context.Context, req *comm.ToggleReq) (*comm.ToggleResp, error) {
 	sent := false
 	m.RLock()
-	now := time.Now()
 	for _, action := range m.g {
 		sent = true
-		action <- now
+		action <- time.Unix(req.TimeUnix, 0)
 	}
 	m.RUnlock()
 
@@ -88,9 +87,9 @@ func (m *mirror) Toggle(ctx context.Context, _ *comm.Noop) (*comm.Noop, error) {
 		return nil, errors.New("Garage Not Registered")
 	}
 
-	return &comm.Noop{}, nil
+	return &comm.ToggleResp{}, nil
 }
-func (m *mirror) Garage(_ *comm.Noop, ggs comm.Garage_GarageServer) error {
+func (m *mirror) Garage(ggs comm.Garage_GarageServer) error {
 	notify := make(chan time.Time, 6)
 	m.Lock()
 	m.g[ggs] = notify
@@ -102,16 +101,33 @@ func (m *mirror) Garage(_ *comm.Noop, ggs comm.Garage_GarageServer) error {
 		m.Unlock()
 	}()
 
+	recv := make(chan *comm.FromGarage)
+	go func() {
+		for {
+			fg, err := ggs.Recv()
+			if err != nil {
+				return
+			}
+			recv <- fg
+		}
+	}()
+
 	ctx := ggs.Context()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-notify:
-			err := ggs.Send(&comm.Noop{})
+		case n := <-notify:
+			err := ggs.Send(&comm.ToGarage{TimeUnix: n.Unix(), Toggle: true})
 			if err != nil {
 				return fmt.Errorf("garage send %v", err)
 			}
+		case fg := <-recv:
+			err := ggs.Send(&comm.ToGarage{TimeUnix: fg.TimeUnix})
+			if err != nil {
+				return fmt.Errorf("garage send %v", err)
+			}
+
 		}
 
 	}

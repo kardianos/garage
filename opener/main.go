@@ -20,12 +20,12 @@ func main() {
 	sig := runOutput()
 
 	ctx, quit := context.WithCancel(context.Background())
-	ossigs := make(chan os.Signal, 3)
-	signal.Notify(ossigs, os.Kill)
+	ossigs := make(chan os.Signal)
+	signal.Notify(ossigs, os.Interrupt, os.Kill)
 	go func() {
 		<-ossigs
 		quit()
-		<-time.After(10 * time.Second)
+		<-time.After(3 * time.Second)
 		os.Exit(0)
 	}()
 
@@ -53,9 +53,18 @@ func main() {
 		gc:  gc,
 	}
 
-	err = s.Serve(ctx)
-	if err != nil {
-		log.Fatal("failed to serve", err)
+	for {
+		select {
+		default:
+		case <-ctx.Done():
+			return
+		}
+		err = s.Serve(ctx)
+		if err != nil {
+			log.Println("failed to serve", err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
 	}
 }
 
@@ -65,27 +74,49 @@ type server struct {
 }
 
 func (s *server) Serve(sctx context.Context) (err error) {
+	ggc, err := s.gc.Garage(sctx)
+	if err != nil {
+		log.Println("Garage", err)
+		return
+	}
+	err = s.runGarageService(ggc)
+	if err != nil {
+		log.Println("Garage Service", err)
+		return
+	}
+	return
+}
+
+func (s *server) runGarageService(ggc comm.Garage_GarageClient) error {
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		defer ggc.CloseSend()
+
+		for {
+			select {
+			case <-ggc.Context().Done():
+				return
+			case now := <-ticker.C:
+				ggc.Send(&comm.FromGarage{TimeUnix: now.Unix()})
+			}
+		}
+	}()
 	for {
 		select {
 		default:
-		case <-sctx.Done():
+		case <-ggc.Context().Done():
 			return nil
 		}
 
-		ggc, err := s.gc.Garage(sctx, &comm.Noop{})
-		if err != nil {
-			log.Println("Garage", err)
-			time.Sleep(1 * time.Second)
-			continue
-		}
-		_, err = ggc.Recv()
+		recv, err := ggc.Recv()
 		if err != nil {
 			log.Println("Recv", err)
-			time.Sleep(1 * time.Second)
-			continue
+			return err
 		}
-		s.sig <- struct{}{}
-
+		if recv.Toggle {
+			s.sig <- struct{}{}
+		}
 	}
 	return nil
 }
