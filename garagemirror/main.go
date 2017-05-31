@@ -3,41 +3,37 @@ package main
 import (
 	"crypto/tls"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"net"
 	"os"
-	"os/signal"
 	"sync"
 	"time"
 
 	"github.com/kardianos/garage/comm"
 
+	"github.com/kardianos/service"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
-func main() {
-	ctx, quit := context.WithCancel(context.Background())
-	ossigs := make(chan os.Signal, 3)
-	signal.Notify(ossigs, os.Kill)
-	go func() {
-		<-ossigs
-		quit()
-		<-time.After(10 * time.Second)
-		os.Exit(0)
-	}()
+var _ service.Interface = &program{}
 
-	runServer(ctx)
+type program struct {
+	quit func()
 }
 
-func runServer(ctx context.Context) {
+func (p *program) Start(svc service.Service) error {
+	ctx, quit := context.WithCancel(context.Background())
+	p.quit = quit
+
 	on := fmt.Sprintf(":%d", comm.Port())
 
 	cert, err := tls.X509KeyPair(comm.Cert(), comm.Key())
 	if err != nil {
-		log.Fatal("failed to load cert and key", err)
+		return fmt.Errorf("failed to load cert and key", err)
 	}
 	creds := credentials.NewServerTLSFromCert(&cert)
 
@@ -46,19 +42,70 @@ func runServer(ctx context.Context) {
 	)
 	listener, err := net.Listen("tcp", on)
 	if err != nil {
-		log.Fatalf("failed to listen on %q", on)
+		return fmt.Errorf("failed to listen on %q", on)
 	}
 	m := &mirror{
-		g: make(map[comm.Garage_GarageServer]chan time.Time, 3),
+		appCtx: ctx,
+		g:      make(map[comm.Garage_GarageServer]chan time.Time, 3),
 	}
 	comm.RegisterGarageServer(s, m)
-	err = s.Serve(listener)
+	go func() {
+		err = s.Serve(listener)
+		if err != nil {
+			log.Fatal("failed to serve", err)
+		}
+	}()
+
+	return nil
+}
+
+func (p *program) Stop(s service.Service) error {
+	// Stop should not block. Return with a few seconds.
+	p.quit()
+	go func() {
+		<-time.After(3 * time.Second)
+		os.Exit(0)
+	}()
+	return nil
+}
+
+var logger service.Logger
+
+func main() {
+	svcFlag := flag.String("service", "", "control the service")
+	flag.Parse()
+
+	svcConfig := &service.Config{
+		Name:        "garagemirror",
+		DisplayName: "Garage Mirror",
+		Description: "Interface between the garage remote and device.",
+	}
+
+	prg := &program{}
+	s, err := service.New(prg, svcConfig)
 	if err != nil {
-		log.Fatal("failed to serve", err)
+		log.Fatal(err)
+	}
+	logger, err = s.Logger(nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(*svcFlag) != 0 {
+		err := service.Control(s, *svcFlag)
+		if err != nil {
+			log.Printf("Valid actions: %q\n", service.ControlAction)
+			log.Fatal(err)
+		}
+		return
+	}
+	err = s.Run()
+	if err != nil {
+		logger.Error(err)
 	}
 }
 
 type mirror struct {
+	appCtx context.Context
 	sync.RWMutex
 	g map[comm.Garage_GarageServer]chan time.Time
 }
@@ -89,6 +136,7 @@ func (m *mirror) Toggle(ctx context.Context, req *comm.ToggleReq) (*comm.ToggleR
 
 	return &comm.ToggleResp{}, nil
 }
+
 func (m *mirror) Garage(ggs comm.Garage_GarageServer) error {
 	notify := make(chan time.Time, 6)
 	m.Lock()
@@ -115,6 +163,8 @@ func (m *mirror) Garage(ggs comm.Garage_GarageServer) error {
 	ctx := ggs.Context()
 	for {
 		select {
+		case <-m.appCtx.Done():
+			return nil
 		case <-ctx.Done():
 			return nil
 		case n := <-notify:
